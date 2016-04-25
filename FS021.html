@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset=utf-8>
+		<title>FS 021</title>
+		<style>
+			body { margin: 0; }
+			canvas { 
+                width: 100%; 
+                height: 100%;
+                image-rendering: pixelated;
+            }
+		</style>
+        
+        <script id="fragmentShader" type="x-shader/x-fragment">
+            #define M_PI 3.1415926535897932384626433832795
+            
+			uniform float time;
+            uniform float seed;
+			uniform vec2 resolution;
+			uniform sampler2D tPrev;
+            uniform int rule;
+            uniform int initialState;
+
+			varying vec2 vUv;
+            
+            //
+            // 便利関数
+            //
+            vec2 normalizedPosition()
+            {
+                return -1.0 + 2.0 * vUv;
+            }
+            
+            float rand(vec2 co){
+                return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
+            }
+            
+            //
+            // scene
+            //
+            const int PointSize = 2;
+            float initialize(vec2 p)
+            {
+                vec2 d = (1.0) / resolution;
+                
+                if (initialState == 0)
+                {
+                    // 十字に交差する線
+                    if (int(abs(p.x) * resolution.x) == 0 || int(abs(p.y) * resolution.y) == 0)
+                    {
+                        return 1.0;
+                    }
+                    return 0.0;
+                }
+                else if (initialState == 1)
+                {
+                    // 中央に一つ点を置く
+                    if (int(abs(p.x) * resolution.x) == 0 && int(abs(p.y) * resolution.y) == 0)
+                    {
+                        return 1.0;
+                    }
+                    return 0.0;
+                }
+                else if (initialState == 2)
+                {
+                    // 十字に交差するグリッド
+                    if (   int(mod(abs(vUv.x) * resolution.x, 16.0)) == 0 
+                        || int(mod(abs(vUv.y) * resolution.y, 16.0)) == 0)
+                    {
+                        return 1.0;
+                    }
+                    return 0.0;
+                }
+                else if (initialState == 3)
+                {
+                    // 十字に交差するグリッド
+                    if (   int(mod(abs(vUv.x) * resolution.x, 128.0)) == 0 
+                        || int(mod(abs(vUv.y) * resolution.y, 128.0)) == 0)
+                    {
+                        return 1.0;
+                    }
+                    return 0.0;
+                }
+                else if (initialState == 4)
+                {
+                    // 中央に一つ矩形を置く
+                    if (   int(abs(p.x) * resolution.x) <= PointSize 
+                        && int(abs(p.y) * resolution.y) <= PointSize)
+                    {
+                        return 1.0;
+                    }
+                    return 0.0;
+                }
+                else if (initialState == 5)
+                {
+                    // 中央の一部のみでランダムスタート
+                    if (int(abs(p.x) * resolution.x) <= 10 && int(abs(p.y) * resolution.y) <= 10)
+                    {
+                        float r = rand(gl_FragCoord.xy + vec2(seed, seed));
+                        return floor(r + 0.5);
+                    }
+                    return 0.0;
+                }
+                else
+                {
+                    // ランダムスタート
+                    float r = rand(gl_FragCoord.xy + vec2(seed, seed));
+                    return floor(r + 0.5);
+                }
+            }
+            
+            int cellState(vec2 delta)
+            {
+                return int((texture2D(tPrev, vec2(mod(vUv.x + delta.x, 1.0), mod(vUv.y + delta.y, 1.0))).g) + 0.5);
+            }
+            
+            const int R = 1; // Range 近傍の範囲
+            int sumNM()
+            {
+                // 1ピクセルの距離
+                vec2 d = (1.0) / resolution;
+                
+                // Moore neighborhood (8近傍)
+                int sum = 0;
+                for (int x = -R; x <= R; ++x)
+                {
+                    for (int y = -R; y <= R; ++y)
+                    {
+                        if (x == 0 && y == 0)
+                            continue;
+                            
+                        sum += cellState(vec2((float(x)) * d.x, (float(y)) * d.y));
+                    }
+                }
+                return sum;
+            }
+            
+            float calc()
+            {
+                // 近傍の生存セル数を数える
+                int sum = sumNM();
+                
+                // セルの次の状態を決定する
+                if (sum == 0)
+                    return 0.0;
+                else
+                    return mod(floor(float(rule) / pow(2.0, float(sum - 1))), 2.0);
+            }
+            
+            //
+            // main
+            //
+			void main()
+            {
+                float l = 0.0;
+                if (time < 1.0)
+                {
+                    vec2 p = normalizedPosition();
+                    l = initialize(p);
+                }
+                else
+                {
+                    l = calc();
+                }
+                
+				gl_FragColor = vec4(
+                    0.6,
+                    l,
+                    0.2,
+                    1.0);
+			}
+        </script>
+
+        <script id="vertexShader" type="x-shader/x-fragment">
+            varying vec2 vUv;
+            
+            void main()
+            {
+                vUv = uv;
+                vec4 mvPosition = modelViewMatrix * vec4( position, 1.0 );
+                gl_Position = projectionMatrix * mvPosition;
+            }
+        </script>
+	</head>
+	<body>
+		<p>
+			<input id="buttonStop" type="button" value="Stop" onclick="onButtonStopClick()">
+			<input id="buttonStep" type="button" value="Step" onclick="onButtonStepClick()">
+            / Initial State <select id="selectInitialState" onchange="onChangeSelectInitialState(this.selectedIndex)">
+                <option>Cross</option>
+                <option>Dot</option>
+                <option>Grid 16</option>
+                <option>Grid 128</option>
+                <option>Point</option>
+                <option>Random1</option>
+                <option>Random2</option>
+            </select>
+			<input id="buttonReset" type="button" value="Reset" onclick="onButtonResetClick()">
+            / Rule <input id="numberRule" type="number" value="114" min="0" max="255" step="1" oninput="onInputNumberRule(this.value)">
+		</p>
+        
+        <script src="js/three.min.js"></script>
+        <script src="js/scene.js"></script>
+	</body>
+</html>
